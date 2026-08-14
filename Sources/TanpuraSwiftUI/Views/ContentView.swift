@@ -5,8 +5,6 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            // Deep background gradient — a calm backdrop for the glass cards
-            // to catch light against, echoing the site's dark theme.
             LinearGradient(
                 colors: [Color(red: 0.06, green: 0.05, blue: 0.09), Color(red: 0.12, green: 0.08, blue: 0.14)],
                 startPoint: .top,
@@ -24,6 +22,8 @@ struct ContentView: View {
                     }
                     .padding()
                 }
+            } else if let error = engine.startupError {
+                ErrorView(message: error)
             } else {
                 LoadingView()
             }
@@ -62,6 +62,26 @@ private struct LoadingView: View {
             Text("tuning strings…")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.6))
+        }
+    }
+}
+
+private struct ErrorView: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 36))
+                .foregroundStyle(.orange)
+            Text("Couldn't load samples")
+                .font(.headline)
+                .foregroundStyle(.white)
+            Text(message)
+                .font(.footnote.monospaced())
+                .foregroundStyle(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
         }
     }
 }
