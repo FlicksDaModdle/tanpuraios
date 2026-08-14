@@ -1,0 +1,38 @@
+name: TanpuraSwiftUI
+options:
+  bundleIdPrefix: com.example.tanpura
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_PREVIEWS: YES
+
+targets:
+  TanpuraSwiftUI:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/TanpuraSwiftUI
+    resources:
+      - path: Resources/Audio
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Tanpura
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.tanpura.app
+        TARGETED_DEVICE_FAMILY: "1" # iPhone only; add "2" for iPad
+        # Signing is left on "manual"/empty here — CI builds unsigned for
+        # the Simulator by default. To build for a real device or archive
+        # for TestFlight, set CODE_SIGN_STYLE/DEVELOPMENT_TEAM here (or
+        # override via xcodebuild -allowProvisioningUpdates in CI) once you
+        # have an Apple Developer account and provisioning profile.
+        CODE_SIGN_STYLE: Automatic
