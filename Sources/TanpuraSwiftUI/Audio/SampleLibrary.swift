@@ -25,7 +25,7 @@ actor SampleLibrary {
         let url = Bundle.main.url(forResource: resourceName, withExtension: "wav")
             ?? Bundle.main.url(forResource: resourceName, withExtension: "wav", subdirectory: "Audio")
         guard let url else {
-            throw SampleLibraryError.missingResource(resourceName)
+            throw SampleLibraryError.missingResource(resourceName, Self.debugListWavFiles())
         }
         let file = try AVAudioFile(forReading: url)
         guard let format = AVAudioFormat(
@@ -62,7 +62,7 @@ actor SampleLibrary {
 
     /// Loads every recorded string in a sample set. Mirrors loadSet().
     func loadSet(_ key: String) throws -> [StringName: AVAudioPCMBuffer] {
-        guard let set = SampleSets.all[key] else { throw SampleLibraryError.missingResource(key) }
+        guard let set = SampleSets.all[key] else { throw SampleLibraryError.missingResource(key, Self.debugListWavFiles()) }
         var out: [StringName: AVAudioPCMBuffer] = [:]
         for (name, resource) in set.files {
             out[name] = try load(resource)
@@ -146,12 +146,45 @@ actor SampleLibrary {
     private static func makeAccumulator(format: AVAudioFormat, estimatedFrames: AVAudioFrameCount) throws -> PCMAccumulator {
         PCMAccumulator(format: format, estimatedFrames: estimatedFrames)
     }
+
+    /// Recursively lists every .wav actually present anywhere in the app
+    /// bundle, with paths relative to the bundle root. Only called on
+    /// failure, purely for diagnostics — this tells us definitively where
+    /// XcodeGen/xcodebuild actually put the audio resources, instead of
+    /// guessing at Bundle.main.url's search behavior from the outside.
+    static func debugListWavFiles() -> String {
+        guard let resourceURL = Bundle.main.resourceURL else { return "(no resourceURL)" }
+        guard let enumerator = FileManager.default.enumerator(at: resourceURL, includingPropertiesForKeys: nil) else {
+            return "(couldn't enumerate bundle at \(resourceURL.path))"
+        }
+        var found: [String] = []
+        for case let fileURL as URL in enumerator {
+            if fileURL.pathExtension.lowercased() == "wav" {
+                found.append(fileURL.path.replacingOccurrences(of: resourceURL.path, with: ""))
+            }
+        }
+        if found.isEmpty {
+            return "no .wav files found anywhere in bundle at \(resourceURL.path)"
+        }
+        return "found \(found.count) wav(s): \(found.joined(separator: ", "))"
+    }
 }
 
-enum SampleLibraryError: Error {
-    case missingResource(String)
+enum SampleLibraryError: Error, CustomStringConvertible {
+    case missingResource(String, String) // resource name, bundle diagnostic listing
     case decodeFailed(String)
     case renderFailed
+
+    var description: String {
+        switch self {
+        case .missingResource(let name, let diagnostic):
+            return "missingResource(\"\(name)\") — \(diagnostic)"
+        case .decodeFailed(let name):
+            return "decodeFailed(\"\(name)\")"
+        case .renderFailed:
+            return "renderFailed"
+        }
+    }
 }
 
 /// Accumulates AVAudioPCMBuffer chunks from offline rendering into a single
