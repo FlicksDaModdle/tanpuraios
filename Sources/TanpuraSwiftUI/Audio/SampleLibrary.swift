@@ -19,7 +19,12 @@ actor SampleLibrary {
     /// Loads (or returns cached) the raw recorded buffer for a resource name.
     func load(_ resourceName: String) throws -> AVAudioPCMBuffer {
         if let cached = bufferCache[resourceName] { return cached }
-        guard let url = Bundle.main.url(forResource: resourceName, withExtension: "wav") else {
+        // Depending on how the resource got bundled (flattened vs. preserved
+        // as a folder reference), the wav can end up either at the bundle
+        // root or nested under "Audio/" — check both rather than guessing.
+        let url = Bundle.main.url(forResource: resourceName, withExtension: "wav")
+            ?? Bundle.main.url(forResource: resourceName, withExtension: "wav", subdirectory: "Audio")
+        guard let url else {
             throw SampleLibraryError.missingResource(resourceName)
         }
         let file = try AVAudioFile(forReading: url)
