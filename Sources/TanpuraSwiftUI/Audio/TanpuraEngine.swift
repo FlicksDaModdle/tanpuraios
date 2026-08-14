@@ -30,6 +30,7 @@ final class TanpuraEngine: ObservableObject {
         didSet { Task { await handleAltVoiceChange() } }
     }
     @Published private(set) var isReady = false
+    @Published private(set) var startupError: String?
 
     var keyLabel: (name: String, octave: Int) {
         let parsed = Note.fromMidi(baseMidi)
@@ -55,6 +56,7 @@ final class TanpuraEngine: ObservableObject {
         do {
             try engine.start()
         } catch {
+            startupError = "Audio engine failed to start: \(error.localizedDescription)"
             print("Engine start failed: \(error)")
             return
         }
@@ -107,6 +109,7 @@ final class TanpuraEngine: ObservableObject {
                 try? await library.prewarmAll()
             }
         } catch {
+            startupError = "Failed to load samples: \(error)"
             print("Failed to warm samples: \(error)")
         }
     }
