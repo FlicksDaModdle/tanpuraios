@@ -1,0 +1,123 @@
+name: Release to TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      export_method:
+        description: "How to sign/export the IPA"
+        type: choice
+        default: ad-hoc
+        options:
+          - ad-hoc # installs on devices you've registered by UDID; you get a downloadable .ipa, no TestFlight involved
+          - app-store-connect # uploads to TestFlight; install via the TestFlight app
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.0"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # --- Import signing certificate + provisioning profile ---
+      # Decodes the secrets into a temporary keychain and installs the
+      # provisioning profile where xcodebuild expects to find it. This is
+      # the CI equivalent of Xcode's "Signing & Capabilities" tab.
+      - name: Import signing certificate
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > cert.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security list-keychain -d user -s build.keychain
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+      - name: Install provisioning profile
+        env:
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > profile.mobileprovision
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+
+      # --- Archive + export a signed IPA ---
+      - name: Archive
+        run: |
+          xcodebuild \
+            -project TanpuraSwiftUI.xcodeproj \
+            -scheme TanpuraSwiftUI \
+            -destination "generic/platform=iOS" \
+            -configuration Release \
+            -archivePath build/Tanpura.xcarchive \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
+            archive
+
+      - name: Write export options
+        run: |
+          cat > ExportOptions.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>${{ github.event.inputs.export_method }}</string>
+              <key>teamID</key>
+              <string>${{ secrets.APPLE_TEAM_ID }}</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/Tanpura.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist ExportOptions.plist
+
+      # Always available regardless of export method — download this from
+      # the workflow run's "Artifacts" section. For an ad-hoc build, this
+      # .ipa is what you hand to Sideloadly/AltStore. For an app-store-connect
+      # build it's the same IPA that also gets pushed to TestFlight below.
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TanpuraSwiftUI-${{ github.event.inputs.export_method }}
+          path: build/export/*.ipa
+          if-no-files-found: error
+
+      # --- Upload to TestFlight (app-store-connect method only) ---
+      # Uses App Store Connect API key auth (no Apple ID password, no
+      # 2FA prompt) — this is what makes the whole pipeline runnable
+      # unattended from CI.
+      - name: Upload to TestFlight
+        if: github.event.inputs.export_method == 'app-store-connect'
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/private_keys
+          echo "$APPSTORE_PRIVATE_KEY" > ~/private_keys/AuthKey_${APPSTORE_KEY_ID}.p8
+          xcrun altool --upload-app \
+            --type ios \
+            --file build/export/TanpuraSwiftUI.ipa \
+            --apiKey "$APPSTORE_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
